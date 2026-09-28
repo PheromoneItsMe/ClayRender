@@ -1,6 +1,6 @@
 /*
     ============================================================================
-    EasyLife: SimReady Clay & Lighting Analysis Render - Drag & Drop Installer
+    EasyLife: SimReady Render Studio - Drag and Drop Installer
     ============================================================================
     Author: Pheromone
     Compatibility: Autodesk 3ds Max 2020 - 2026 (Requires V-Ray 5 / 6)
@@ -13,20 +13,26 @@
 (
     local macroContent = @"/*
     ============================================================================
-    EasyLife: SimReady Clay & Lighting Analysis Render
+    EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)
     ============================================================================
     Author: Pheromone
     Compatibility: Autodesk 3ds Max 2020 - 2026 (Requires V-Ray 5 / 6)
     
     Features:
-    - 1-Click Clay (Material Override) + VRayLightingAnalysis render.
-    - 100% compliant with Physicl.AI SIM-Ready Specifications:
-        * Mandatory Unhide All (Ceiling & Walls active).
-        * Procedural Clay VRayMtl (160, 160, 160, roughness 0.5, 0 textures).
-        * Auto-exclusion of window glass (*WINDOW_GLASS*, *glass*) & backgrounds (*BACKGROUND*).
-        * Calibrated Lighting Analysis (260 - 5000 Lux, Legend enabled).
+    - 2 Intelligent Render Modes:
+        1. Textured Preview (Fast Progressive) - DEFAULT:
+           Renders native materials & textures with fast progressive sampling
+           to catch a clear, intelligible frame quickly without stalling or RAM bloat.
+           Extracts BOTH Textured RGB image and false-color Lighting Analysis pass.
+        2. Clay & LA (Material Override):
+           100% compliant with Physicl.AI SIM-Ready Specifications:
+           Procedural Clay VRayMtl (160, 160, 160, roughness 0.5, 0 textures)
+           Auto-exclusion of window glass (*WINDOW_GLASS*, *glass*) & backgrounds (*BACKGROUND*).
+           Extracts BOTH Clay RGB image and false-color Lighting Analysis pass.
+    - Calibrated Lighting Analysis (260 - 5000 Lux, Legend enabled) in both modes.
+    - Mandatory Unhide All (Ceiling & Walls active) before each render.
     - Camera selection dropdown with 360° Spherical (2:1) vs Native Camera FOV.
-    - Output directory picker; saves both Clay RGB and LA PNGs.
+    - Output directory picker; saves both RGB and LA PNGs.
     - Full V-Ray VFB display with progress & interactive abort support.
     - Guaranteed Zero Contamination restoration upon finish or cancel.
     ============================================================================
@@ -35,11 +41,11 @@
 macroScript SimClayRender
 category:""EasyLife""
 buttonText:""ClayRender""
-toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
+toolTip:""EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)""
 (
     global rollout_EasyLife_SimClayRender
     
-    rollout rollout_EasyLife_SimClayRender ""EasyLife: Clay & LA Render"" width:380 height:540
+    rollout rollout_EasyLife_SimClayRender ""EasyLife: Clay & LA Render"" width:380 height:580
     (
         local sceneCamNodes = #()
         
@@ -66,14 +72,19 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
         )
         
         -- UI GROUPS
-        group "" 1. Camera & Projection ""
+        group "" 1. Render Style ""
+        (
+            radiobuttons rb_style """" labels:#(""Textured Preview (Fast Progressive)"", ""Clay && LA (Material Override)"") default:1 align:#left
+        )
+        
+        group "" 2. Camera && Projection ""
         (
             dropdownList ddl_cams ""Select Camera:"" items:#() height:6 tooltip:""Select camera to render""
             button btn_refreshCams ""🔄 Refresh Cameras"" width:140 align:#right tooltip:""Scan scene for newly created cameras""
-            radiobuttons rb_proj ""Render Mode:"" labels:#(""360° Spherical (Equirectangular 2:1)"", ""Native Camera Framing (Standard FOV)"") default:1
+            radiobuttons rb_proj ""Projection Mode:"" labels:#(""360° Spherical (Equirectangular 2:1)"", ""Native Camera Framing (Standard FOV)"") default:1
         )
         
-        group "" 2. Resolution & Time Limit ""
+        group "" 3. Resolution && Time Limit ""
         (
             dropdownList ddl_presets ""Resolution Preset:"" items:#( \
                 ""360 Preview (2000 x 1000)"", \
@@ -84,27 +95,43 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
             ) default:1
             spinner spn_w ""Width:"" type:#integer range:[320, 8192, 2000] width:140 across:2 align:#left
             spinner spn_h ""Height:"" type:#integer range:[240, 8192, 1000] width:140 align:#right
-            spinner spn_time ""Time Limit (min):"" type:#float range:[0.1, 30.0, 0.7] width:150 across:2 align:#left tooltip:""Progressive render time limit (~0.7 min = ~42s)""
-            spinner spn_noise ""Noise Cutoff:"" type:#float range:[0.001, 0.1, 0.02] width:150 align:#right tooltip:""Progressive noise threshold""
+            spinner spn_time ""Time Limit (min):"" type:#float range:[0.1, 30.0, 0.4] width:150 across:2 align:#left tooltip:""Progressive render time limit (~0.4 min = ~24s)""
+            spinner spn_noise ""Noise Cutoff:"" type:#float range:[0.001, 0.1, 0.03] width:150 align:#right tooltip:""Progressive noise threshold""
         )
         
-        group "" 3. Save Destination ""
+        group "" 4. Save Destination ""
         (
             edittext edt_outDir ""Save Folder:"" text:"""" readonly:false labelOntop:true
-            button btn_browse ""📁 Browse..."" width:100 align:#left across:3 tooltip:""Choose folder for Clay RGB and LA images""
+            button btn_browse ""📁 Browse..."" width:100 align:#left across:3 tooltip:""Choose folder for RGB and LA images""
             button btn_resetDir ""↺ Reset"" width:70 align:#center tooltip:""Reset to scene preview folder""
             button btn_openDir ""📂 Open"" width:70 align:#right tooltip:""Open destination folder in Explorer""
             checkbox chk_openComplete ""Open folder automatically when finished"" checked:true
         )
         
-        group "" 4. One-Click Render ""
+        group "" 5. One-Click Render ""
         (
-            button btn_render ""🚀 START CLAY & LA RENDER"" width:340 height:44 align:#center tooltip:""Start 100% SIM-Ready compliant Clay + LA Render""
-            progressbar pb_prog value:0 width:340 height:10 color:(color 0 160 80)
-            label lbl_status ""Status: Ready."" align:#center
+            button btn_render ""🚀 START TEXTURED PREVIEW"" width:340 height:44 align:#center tooltip:""Render fast textured preview with Lighting Analysis""
+            progressbar pb_prog value:0 width:340 height:10 color:(color 0 140 220)
+            label lbl_status ""Status: Ready (Textured Preview mode)."" align:#center
         )
         
         label lbl_hint ""Tip: To abort render safely, press ESC or click Cancel in the progress window. Original scene settings are 100% guaranteed to be restored."" height:28 width:340 align:#center
+        
+        -- DYNAMIC STYLE UI UPDATER
+        fn fn_updateStyleUI state =
+        (
+            if state == 1 then (
+                btn_render.text = ""🚀 START TEXTURED PREVIEW""
+                btn_render.tooltip = ""Start fast textured preview with Lighting Analysis""
+                lbl_status.text = ""Status: Ready (Textured Preview mode).""
+                pb_prog.color = (color 0 140 220)
+            ) else (
+                btn_render.text = ""🚀 START CLAY && LA RENDER""
+                btn_render.tooltip = ""Start 100% SIM-Ready compliant Clay + LA Render""
+                lbl_status.text = ""Status: Ready (Clay & LA mode).""
+                pb_prog.color = (color 0 160 80)
+            )
+        )
         
         -- POPULATE CAMERAS
         fn fn_refreshCameraList =
@@ -149,6 +176,17 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
         )
         
         -- EVENT HANDLERS
+        on rb_style changed state do (
+            fn_updateStyleUI state
+            if state == 1 then (
+                if spn_time.value == 0.7 do spn_time.value = 0.4
+                if spn_noise.value == 0.02 do spn_noise.value = 0.03
+            ) else (
+                if spn_time.value == 0.4 do spn_time.value = 0.7
+                if spn_noise.value == 0.03 do spn_noise.value = 0.02
+            )
+        )
+        
         on ddl_presets selected idx do (
             fn_applyPreset idx
         )
@@ -172,7 +210,7 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
         )
         
         on btn_browse pressed do (
-            local chosen = getSavePath caption:""Select Output Folder for Clay & LA Renders"" initialDir:edt_outDir.text
+            local chosen = getSavePath caption:""Select Output Folder for Render Images"" initialDir:edt_outDir.text
             if chosen != undefined and chosen != """" do (
                 if not (matchPattern chosen pattern:@""*\"") do chosen += @""\""
                 edt_outDir.text = chosen
@@ -188,7 +226,7 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
             if doesFileExist d then (
                 shellLaunch ""explorer.exe"" d
             ) else (
-                messageBox (""Output folder does not exist yet:\n"" + d) title:""Clay & LA Render""
+                messageBox (""Output folder does not exist yet:\n"" + d) title:""EasyLife Render""
             )
         )
         
@@ -196,20 +234,20 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
         on btn_render pressed do
         (
             if sceneCamNodes.count == 0 or ddl_cams.selection < 1 or ddl_cams.selection > sceneCamNodes.count do (
-                messageBox ""Please select a valid camera to render."" title:""Clay & LA Render""
+                messageBox ""Please select a valid camera to render."" title:""EasyLife Render""
                 return false
             )
             
             local targetCam = sceneCamNodes[ddl_cams.selection]
             if not (isValidNode targetCam) do (
-                messageBox ""The selected camera node is no longer valid. Refreshing..."" title:""Clay & LA Render""
+                messageBox ""The selected camera node is no longer valid. Refreshing..."" title:""EasyLife Render""
                 fn_refreshCameraList()
                 return false
             )
             
             local vr = renderers.current
             if not (isKindOf vr VRay) and not (matchPattern ((classOf vr) as string) pattern:""*V_Ray*"") and not (matchPattern ((classOf vr) as string) pattern:""*VRay*"") do (
-                messageBox ""Current renderer is not V-Ray!\nPlease set V-Ray as the production renderer in Render Setup."" title:""Clay & LA Render""
+                messageBox ""Current renderer is not V-Ray!\nPlease set V-Ray as the production renderer in Render Setup."" title:""EasyLife Render""
                 return false
             )
             
@@ -220,6 +258,9 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
             
             try (makeDir outDir all:true) catch ()
             
+            local isTextured = (rb_style.state == 1)
+            local modePrefix = if isTextured then ""Textured"" else ""Clay""
+            
             local is360 = (rb_proj.state == 1)
             local resW = spn_w.value
             local resH = spn_h.value
@@ -229,17 +270,21 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
             local scName = getFilenameFile maxFileName
             if scName == """" do scName = ""Scene""
             local camName = targetCam.name
-            local rgbFile = outDir + scName + ""_"" + camName + ""_Clay_RGB.png""
-            local laFile = outDir + scName + ""_"" + camName + ""_Clay_LA.png""
+            local rgbFile = outDir + scName + ""_"" + camName + ""_"" + modePrefix + ""_RGB.png""
+            local laFile = outDir + scName + ""_"" + camName + ""_"" + modePrefix + ""_LA.png""
             
             lbl_status.text = ""Status: Preparing scene & unhiding objects...""
             pb_prog.value = 10
             windows.processPostedMessages()
             
-            -- 1. MANDATORY UNHIDE ALL
+            -- 1. MANDATORY UNHIDE ALL (PHYSICL.AI SPECIFICATIONS)
             unhide objects
             
-            -- 2. BACKUP ORIGINAL SETTINGS
+            -- 2. BITMAP CACHE CLEANUP & RAM PROTECTION
+            gc light:true
+            freeSceneBitmaps()
+            
+            -- 3. BACKUP ORIGINAL SETTINGS (FOR ZERO CONTAMINATION)
             local origW = renderWidth
             local origH = renderHeight
             local origOverrideOn = vr.options_overrideMtl_on
@@ -270,7 +315,7 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
                 pb_prog.value = 20
                 windows.processPostedMessages()
                 
-                -- 3. ENSURE CALIBRATED VRAYLIGHTINGANALYSIS
+                -- 4. ENSURE CALIBRATED VRAYLIGHTINGANALYSIS
                 local laElem = undefined
                 for i = 0 to (reMgr.NumRenderElements() - 1) do (
                     local elem = reMgr.GetRenderElement i
@@ -297,7 +342,7 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
                     )
                 )
                 
-                -- 4. APPLY TEMPORARY PROJECTION & RESOLUTION
+                -- 5. APPLY TEMPORARY PROJECTION & RESOLUTION
                 renderWidth = resW
                 renderHeight = resH
                 
@@ -310,27 +355,36 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
                     vr.camera_overrideFOV = false
                 )
                 
-                -- 5. PROCEDURAL CLAY MATERIAL
-                local grayMtl = VRayMtl name:""TEMP_CLAY_PREVIEW"" diffuse:(color 160 160 160) roughness:0.5
-                
-                -- 6. EXCLUSION LIST (Window Glass & Backgrounds)
-                local exclNodes = for o in objects where \
-                    matchPattern o.name pattern:""*WINDOW_GLASS*"" or \
-                    matchPattern o.name pattern:""*BACKGROUND*"" or \
-                    matchPattern o.name pattern:""*PORTAL*"" or \
-                    matchPattern o.name pattern:""*glass*"" collect o
+                -- 6. CONFIGURE MATERIAL OVERRIDE BASED ON MODE
+                if isTextured then (
+                    -- TEXTURED PREVIEW MODE: OVERRIDE OFF
+                    vr.options_overrideMtl_on = false
+                    vr.options_overrideMtl_mtl = undefined
+                    vr.excludeListOverrideMtl = #()
+                ) else (
+                    -- CLAY MODE: PROCEDURAL CLAY MATERIAL
+                    local grayMtl = VRayMtl name:""TEMP_CLAY_PREVIEW"" diffuse:(color 160 160 160) roughness:0.5
                     
-                vr.options_overrideMtl_on = true
-                vr.options_overrideMtl_mtl = grayMtl
-                vr.options_overrideMtl_excl_type = 0 -- Exclude mode
-                vr.excludeListOverrideMtl = exclNodes
+                    -- AUTO-EXCLUSION LIST (Window Glass & Backgrounds)
+                    local exclNodes = for o in objects where \
+                        matchPattern o.name pattern:""*WINDOW_GLASS*"" or \
+                        matchPattern o.name pattern:""*BACKGROUND*"" or \
+                        matchPattern o.name pattern:""*PORTAL*"" or \
+                        matchPattern o.name pattern:""*glass*"" collect o
+                        
+                    vr.options_overrideMtl_on = true
+                    vr.options_overrideMtl_mtl = grayMtl
+                    vr.options_overrideMtl_excl_type = 0 -- Exclude mode
+                    vr.excludeListOverrideMtl = exclNodes
+                )
                 
-                -- 7. PROGRESSIVE SAMPLER
+                -- 7. PROGRESSIVE SAMPLER (FAST INTELLIGIBLE PASSES)
                 vr.imageSampler_type = 0 -- Progressive
                 vr.progressive_max_render_time = timeLimit
                 vr.progressive_noise_threshold = noiseThresh
                 
-                lbl_status.text = ""Status: Rendering in VFB (Press ESC / Cancel to abort)...""
+                local modeDesc = if isTextured then ""Textured Preview"" else ""Clay & LA""
+                lbl_status.text = ""Status: Rendering "" + modeDesc + "" in VFB (Press ESC / Cancel to abort)...""
                 pb_prog.value = 50
                 windows.processPostedMessages()
                 
@@ -339,7 +393,7 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
                 
                 if not wasCancelled then
                 (
-                    lbl_status.text = ""Status: Saving VFB Channels (Clay RGB & LA)...""
+                    lbl_status.text = ""Status: Saving VFB Channels ("" + modePrefix + "" RGB & LA)...""
                     pb_prog.value = 85
                     windows.processPostedMessages()
                     
@@ -347,7 +401,9 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
                     local numCh = try (vrayVFBGetNumChannels()) catch 0
                     local laSaved = false
                     local rgbSaved = false
+                    local effectsSaved = false
                     
+                    -- Extract LightingAnalysis and effectsResult
                     for i = 0 to (numCh - 1) do (
                         local chName = try (vrayVFBGetChannelName i) catch """"
                         if matchPattern chName pattern:""*LightingAnalysis*"" or matchPattern chName pattern:""*Analysis*"" do (
@@ -361,21 +417,41 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
                                 )
                             ) catch ()
                         )
-                        if matchPattern chName pattern:""*RGB*"" or matchPattern chName pattern:""*color*"" do (
-                            if not rgbSaved do (
-                                try (
-                                    local rgbBmp = vrayVFBGetChannelBitmap i
-                                    if rgbBmp != undefined do (
-                                        rgbBmp.filename = rgbFile
-                                        save rgbBmp
-                                        close rgbBmp
-                                        rgbSaved = true
-                                    )
-                                ) catch ()
+                        if matchPattern chName pattern:""*effectsResult*"" do (
+                            try (
+                                local effBmp = vrayVFBGetChannelBitmap i
+                                if effBmp != undefined do (
+                                    effBmp.filename = rgbFile
+                                    save effBmp
+                                    close effBmp
+                                    effectsSaved = true
+                                    rgbSaved = true
+                                )
+                            ) catch ()
+                        )
+                    )
+                    
+                    -- Extract standard RGB if effectsResult was not found
+                    if not rgbSaved do (
+                        for i = 0 to (numCh - 1) do (
+                            local chName = try (vrayVFBGetChannelName i) catch """"
+                            if matchPattern chName pattern:""*RGB*"" or matchPattern chName pattern:""*color*"" do (
+                                if not rgbSaved do (
+                                    try (
+                                        local rgbBmp = vrayVFBGetChannelBitmap i
+                                        if rgbBmp != undefined do (
+                                            rgbBmp.filename = rgbFile
+                                            save rgbBmp
+                                            close rgbBmp
+                                            rgbSaved = true
+                                        )
+                                    ) catch ()
+                                )
                             )
                         )
                     )
                     
+                    -- Fallback to render return bitmap
                     if not rgbSaved and renderedImg != undefined do (
                         try (
                             renderedImg.filename = rgbFile
@@ -391,7 +467,7 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
                     renderSuccess = rgbSaved or laSaved
                     
                     if renderSuccess then (
-                        lbl_status.text = ""Status: Finished successfully! Files saved.""
+                        lbl_status.text = ""Status: Finished! "" + modePrefix + "" RGB & LA saved.""
                         pb_prog.value = 100
                     ) else (
                         lbl_status.text = ""Status: Render finished, check output folder.""
@@ -409,7 +485,7 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
                 local err = getCurrentException()
                 lbl_status.text = ""Status: Error during render (Scene restored).""
                 pb_prog.value = 0
-                format ""ClayRender Exception: %\n"" err
+                format ""EasyLife Render Exception: %\n"" err
             )
             
             -- 10. STRICT IMMEDIATE ZERO CONTAMINATION RESTORATION (ALWAYS RUNS)
@@ -433,6 +509,10 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
                 )
             )
             
+            -- Free RAM
+            gc light:true
+            freeSceneBitmaps()
+            
             btn_render.enabled = true
             
             -- Open folder if requested
@@ -449,6 +529,10 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
             edt_outDir.text = fn_getDefaultOutDir()
             fn_refreshCameraList()
             fn_applyPreset 1
+            rb_style.state = 1
+            fn_updateStyleUI 1
+            spn_time.value = 0.4
+            spn_noise.value = 0.03
         )
     )
     
@@ -470,9 +554,9 @@ toolTip:""EasyLife: SimReady Clay & Lighting Analysis Render (One-Click)""
         close f
         fileIn targetPath
         
-        messageBox "EasyLife: SimReady Clay & Lighting Analysis Render successfully installed!\n\nCategory: EasyLife\nAction: ClayRender\n\nYou can add it to any toolbar via:\nCustomize -> Customize User Interface -> Toolbars" title:"EasyLife: Clay & LA Render" beep:false
+        messageBox "EasyLife: SimReady Render Studio successfully installed!\n\nCategory: EasyLife\nAction: ClayRender\n\nYou can add it to any toolbar via:\nCustomize -> Customize User Interface -> Toolbars" title:"EasyLife: Render Studio" beep:false
         macros.run "EasyLife" "SimClayRender"
     ) catch (
-        messageBox ("Installation Error: " + getCurrentException()) title:"Clay & LA Render Error"
+        messageBox ("Installation Error: " + getCurrentException()) title:"EasyLife Render Error"
     )
 )
