@@ -12,9 +12,11 @@
 ### Overview
 **EasyLife: SimClayRender** is an intelligent, high-speed rendering studio for Autodesk 3ds Max and Chaos V-Ray. Engineered specifically to enforce 100% compliance with **Physicl.AI SIM-Ready** dataset specifications, it eliminates human error, memory bloat, accidental lighting shifts, and tedious manual setups.
 
-The tool provides an instant toggle between two optimized rendering modes, with **Textured Preview** enabled as the default upon opening:
+The tool provides an instant toggle between three optimized rendering modes, with **Textured Preview** enabled as the default upon opening:
 1. **Textured Preview (Fast Progressive) — DEFAULT:** Renders with native scene materials and textures using rapid progressive passes (~20–25 seconds). Designed to catch a clear, intelligible frame immediately without stalling or freezing low-spec machines. Automatically extracts and saves **BOTH** the textured RGB beauty image and the calibrated false-color Lighting Analysis pass.
 2. **Clay & LA (Material Override):** 100% SIM-Ready compliant procedural neutral gray clay override (`RGB 160, 160, 160`, `Roughness 0.5`, 0 textures) with automated exclusion for window glass and backplates. Automatically extracts and saves **BOTH** the Clay RGB image and the calibrated false-color Lighting Analysis pass.
+3. **Fast LA (Lighting Check):** Quick Lighting Analysis check for tuning VRaySun / VRayLight power. Native materials, 360° at 400×200, Brute force + light cache 100, simple portals (temporary), bitmaps stay cached between runs. First run in a Max session loads textures (~2 min on dense scenes); every next check takes **~20–40 s** on a 4-thread laptop instead of 3–10 min. Prints median lux and the blue / cyan / green / yellow / red share (de-noised) with a verdict. Target: mostly green, some yellow, red only around windows, cyan only in corners. Measured deviation from a full LA render: ~5% average (single yellow specks are noise).
+   > Do not judge LA in Clay mode: the 160-gray override bounces more light than real materials and overestimated illuminance by ~50% in tests.
 
 ---
 
@@ -85,6 +87,8 @@ Rendering dense interior scenes with hundreds of PBR models, high-res bitmaps (2
 Инструмент позволяет в один клик переключаться между двумя режимами, при этом **Текстурное превью (Textured Preview)** выбрано **по умолчанию** при открытии окна:
 1. **Textured Preview (Fast Progressive) — ПО УМОЛЧАНИЮ:** Рендерит сцену с оригинальными материалами и текстурами в быстром прогрессивном режиме (~20–25 секунд). Цель режима — быстро поймать четкий, отчетливый кадр без необходимости ждать полного многочасового рендера и без риска зависания ПК. Автоматически сохраняет **И** текстурную бьюти-картинку, **И** карту освещенности Lighting Analysis.
 2. **Clay & LA (Material Override):** 100% соответствующий регламенту SIM-Ready процедурный нейтральный серый клей (`RGB 160, 160, 160`, `Roughness 0.5`, 0 текстур) с автоматическим исключением оконных стекол и фонов. Автоматически сохраняет **И** клей RGB-картинку, **И** карту освещенности Lighting Analysis.
+3. **Fast LA (Проверка света):** быстрая проверка Lighting Analysis при подборе мощности VRaySun / VRayLight. Родные материалы, 360° 400×200, Brute force + light cache 100, временно simple portals, текстуры остаются в памяти между запусками. Первый запуск за сессию Max грузит текстуры (~2 мин на тяжёлых сценах), каждая следующая проверка — **~20–40 сек** на 4-поточном ноутбуке вместо 3–10 мин. В статусе выводит медиану люкс и доли синего / голубого / зелёного / жёлтого / красного (без шума) с вердиктом. Цель: в основном зелёный, немного жёлтого, красный только у окон, голубой только в углах. Отклонение от полного LA-рендера в тестах ~5% (одиночные жёлтые точки — шум).
+   > Не оценивайте LA в режиме Clay: серый оверрайд 160 отражает больше света, чем реальные материалы, и в тестах завышал освещённость примерно на 50%.
 
 ---
 

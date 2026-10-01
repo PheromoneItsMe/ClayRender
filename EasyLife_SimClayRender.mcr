@@ -6,7 +6,7 @@
     Compatibility: Autodesk 3ds Max 2020 - 2026 (Requires V-Ray 5 / 6)
     
     Features:
-    - 2 Intelligent Render Modes:
+    - 3 Intelligent Render Modes:
         1. Textured Preview (Fast Progressive) - DEFAULT:
            Renders native materials & textures with fast progressive sampling
            to catch a clear, intelligible frame quickly without stalling or RAM bloat.
@@ -16,6 +16,11 @@
            Procedural Clay VRayMtl (160, 160, 160, roughness 0.5, 0 textures)
            Auto-exclusion of window glass (*WINDOW_GLASS*, *glass*) & backgrounds (*BACKGROUND*).
            Extracts BOTH Clay RGB image and false-color Lighting Analysis pass.
+        3. Fast LA (Lighting Check, ~20-40 s):
+           Native materials (NO clay - clay overestimates lux by ~50%), 360 at 400x200,
+           Brute force + light cache 100, simple portals (temporary), bitmaps kept
+           in RAM between runs (no reload). Prints median lux and blue/cyan/green/yellow/red
+           share with a verdict (target: mostly green). Error vs full LA render: ~5% (noise specks only).
     - Calibrated Lighting Analysis (260 - 5000 Lux, Legend enabled) in both modes.
     - Mandatory Unhide All (Ceiling & Walls active) before each render.
     - Camera selection dropdown with 360° Spherical (2:1) vs Native Camera FOV.
@@ -32,7 +37,7 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
 (
     global rollout_EasyLife_SimClayRender
     
-    rollout rollout_EasyLife_SimClayRender "EasyLife: Clay & LA Render" width:380 height:580
+    rollout rollout_EasyLife_SimClayRender "EasyLife: Clay & LA Render" width:380 height:600
     (
         local sceneCamNodes = #()
         
@@ -61,7 +66,7 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
         -- UI GROUPS
         group " 1. Render Style "
         (
-            radiobuttons rb_style "" labels:#("Textured Preview (Fast Progressive)", "Clay && LA (Material Override)") default:1 align:#left
+            radiobuttons rb_style "" labels:#("Textured Preview (Fast Progressive)", "Clay && LA (Material Override)", "Fast LA (Lighting check ~20-40 s)") default:1 align:#left
         )
         
         group " 2. Camera && Projection "
@@ -78,10 +83,11 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
                 "360 High-Res (4000 x 2000)", \
                 "Standard 4:3 (2048 x 1536)", \
                 "Standard 16:9 (1920 x 1080)", \
+                "Fast LA 360 (400 x 200)", \
                 "Custom..." \
             ) default:1
-            spinner spn_w "Width:" type:#integer range:[320, 8192, 2000] width:140 across:2 align:#left
-            spinner spn_h "Height:" type:#integer range:[240, 8192, 1000] width:140 align:#right
+            spinner spn_w "Width:" type:#integer range:[300, 8192, 2000] width:140 across:2 align:#left
+            spinner spn_h "Height:" type:#integer range:[150, 8192, 1000] width:140 align:#right
             spinner spn_time "Time Limit (min):" type:#float range:[0.1, 30.0, 0.4] width:150 across:2 align:#left tooltip:"Progressive render time limit (~0.4 min = ~24s)"
             spinner spn_noise "Noise Cutoff:" type:#float range:[0.001, 0.1, 0.03] width:150 align:#right tooltip:"Progressive noise threshold"
         )
@@ -112,6 +118,11 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
                 btn_render.tooltip = "Start fast textured preview with Lighting Analysis"
                 lbl_status.text = "Status: Ready (Textured Preview mode)."
                 pb_prog.color = (color 0 140 220)
+            ) else if state == 3 then (
+                btn_render.text = "⚡ START FAST LA CHECK"
+                btn_render.tooltip = "Quick Lighting Analysis check (native materials, low-res 360, ~20-40 s after first run)"
+                lbl_status.text = "Status: Ready (Fast LA mode)."
+                pb_prog.color = (color 230 140 0)
             ) else (
                 btn_render.text = "🚀 START CLAY && LA RENDER"
                 btn_render.tooltip = "Start 100% SIM-Ready compliant Clay + LA Render"
@@ -159,18 +170,81 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
                 2: ( spn_w.value = 4000; spn_h.value = 2000; rb_proj.state = 1 )
                 3: ( spn_w.value = 2048; spn_h.value = 1536; rb_proj.state = 2 )
                 4: ( spn_w.value = 1920; spn_h.value = 1080; rb_proj.state = 2 )
+                5: ( spn_w.value = 400; spn_h.value = 200; rb_proj.state = 1 )
             )
+        )
+        
+        -- FAST LA STATS: reads the raw "Illuminance" VFB channel (legend strip excluded),
+        -- de-noises it with 4x4 block medians and bins it by the LA legend colours (260-5000 lx scale):
+        --   blue < 813 | cyan < 2077 | green < 3104 | yellow < 4368 | red/orange >= 4368 lx
+        -- Target (SIM-Ready QC): mostly GREEN, some yellow, red only around windows, cyan only in corners.
+        fn fn_fastLAStats =
+        (
+            local res = ""
+            try (
+                local luxK = 252.4   -- Illuminance channel units -> lux (calibrated against the LA legend)
+                local bs = 4
+                local ch = -1
+                for i = 0 to (vrayVFBGetNumChannels() - 1) do (
+                    if (vrayVFBGetChannelName i) == "Illuminance" do ch = i
+                )
+                if ch >= 0 do (
+                    local b = vrayVFBGetChannelBitmap ch
+                    local W = b.width
+                    local H = (b.height * 0.9) as integer
+                    local rows = for y = 0 to (H - 1) collect (for p in (getPixels b [0, y] W linear:true) collect (p.r / luxK))
+                    close b
+                    local n = #(0, 0, 0, 0, 0)
+                    local meds = #()
+                    for iy = 0 to (H / bs) - 1 do for ix = 0 to (W / bs) - 1 do (
+                        local v = #()
+                        for y = iy*bs + 1 to iy*bs + bs do for x = ix*bs + 1 to ix*bs + bs do (
+                            if rows[y][x] > 0 do append v rows[y][x]
+                        )
+                        if v.count > (bs * bs * 0.6) do (
+                            sort v
+                            local Lm = v[v.count / 2 + 1]
+                            append meds Lm
+                            local k = if Lm < 813.0 then 1 else if Lm < 2077.0 then 2 else if Lm < 3104.0 then 3 else if Lm < 4368.0 then 4 else 5
+                            n[k] += 1
+                        )
+                    )
+                    local t = meds.count
+                    if t > 0 do (
+                        sort meds
+                        local pc = for c in n collect (100.0 * c / t)
+                        local verdict = "OK"
+                        if (pc[1] + pc[2]) > 25.0 then verdict = "TOO DARK (too much cyan/blue)"
+                        else if pc[5] > 5.0 or (pc[4] + pc[5]) > 40.0 then verdict = "TOO BRIGHT (too much yellow/red)"
+                        else if pc[3] < 45.0 then verdict = "CHECK (green < 45%)"
+                        res = "med ~" + ((meds[t / 2 + 1] as integer) as string) + " lx | blue " + (formattedPrint pc[1] format:".0f") + "% cyan " + (formattedPrint pc[2] format:".0f") + "% GREEN " + (formattedPrint pc[3] format:".0f") + "% yellow " + (formattedPrint pc[4] format:".0f") + "% red " + (formattedPrint pc[5] format:".0f") + "% -> " + verdict
+                    )
+                )
+            ) catch ( res = "" )
+            res
         )
         
         -- EVENT HANDLERS
         on rb_style changed state do (
             fn_updateStyleUI state
-            if state == 1 then (
-                if spn_time.value == 0.7 do spn_time.value = 0.4
-                if spn_noise.value == 0.02 do spn_noise.value = 0.03
+            if state == 3 then (
+                -- FAST LA: low-res 360, short progressive pass
+                ddl_presets.selection = 5
+                fn_applyPreset 5
+                spn_time.value = 0.1
+                spn_noise.value = 0.05
             ) else (
-                if spn_time.value == 0.4 do spn_time.value = 0.7
-                if spn_noise.value == 0.03 do spn_noise.value = 0.02
+                if ddl_presets.selection == 5 do (
+                    ddl_presets.selection = 1
+                    fn_applyPreset 1
+                )
+                if state == 1 then (
+                    spn_time.value = 0.4
+                    spn_noise.value = 0.03
+                ) else (
+                    spn_time.value = 0.7
+                    spn_noise.value = 0.02
+                )
             )
         )
         
@@ -185,7 +259,7 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
                     fn_applyPreset 1
                 )
             ) else (
-                if ddl_presets.selection == 1 or ddl_presets.selection == 2 do (
+                if ddl_presets.selection == 1 or ddl_presets.selection == 2 or ddl_presets.selection == 5 do (
                     ddl_presets.selection = 3
                     fn_applyPreset 3
                 )
@@ -245,8 +319,10 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
             
             try (makeDir outDir all:true) catch ()
             
-            local isTextured = (rb_style.state == 1)
-            local modePrefix = if isTextured then "Textured" else "Clay"
+            local isFast = (rb_style.state == 3)
+            -- Fast LA keeps NATIVE materials: clay override distorts LA (~+50% lux)
+            local isTextured = (rb_style.state == 1) or isFast
+            local modePrefix = if isFast then "FastLA" else (if isTextured then "Textured" else "Clay")
             
             local is360 = (rb_proj.state == 1)
             local resW = spn_w.value
@@ -268,8 +344,9 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
             unhide objects
             
             -- 2. BITMAP CACHE CLEANUP & RAM PROTECTION
+            -- Fast LA keeps bitmaps cached: reloading textures costs ~2 min per run on dense scenes
             gc light:true
-            freeSceneBitmaps()
+            if not isFast do freeSceneBitmaps()
             
             -- 3. BACKUP ORIGINAL SETTINGS (FOR ZERO CONTAMINATION)
             local origW = renderWidth
@@ -284,6 +361,14 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
             local origCamType = vr.camera_type
             local origOverrideFOV = vr.camera_overrideFOV
             local origCamFOV = vr.camera_fov
+            -- Fast LA extra backups (GI / light cache / shading rate / portals)
+            local origGIPrimary = vr.gi_primary_type
+            local origLCSubdivs = vr.lightcache_subdivs
+            local origLCSampleSize = vr.lightcache_sampleSize
+            local origLCPasses = vr.lightcache_numPasses
+            local origShadingRate = vr.imageSampler_shadingRate
+            local portalNodes = for l in lights where (isKindOf l VRayLight) and (try (l.skylightPortal) catch false) collect l
+            local origSimplePortal = for l in portalNodes collect l.simplePortal
             
             local reMgr = maxOps.GetCurRenderElementMgr()
             local origREFiles = #()
@@ -370,7 +455,17 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
                 vr.progressive_max_render_time = timeLimit
                 vr.progressive_noise_threshold = noiseThresh
                 
-                local modeDesc = if isTextured then "Textured Preview" else "Clay & LA"
+                -- 7b. FAST LA: cheap GI that keeps LA within ~5% of a full render
+                if isFast do (
+                    vr.gi_primary_type = 2                      -- Brute force (no Irradiance map prepasses)
+                    vr.lightcache_subdivs = 100
+                    vr.lightcache_sampleSize = 0.03
+                    vr.lightcache_numPasses = amax 1 sysInfo.cpucount
+                    vr.imageSampler_shadingRate = 4
+                    for l in portalNodes do l.simplePortal = true   -- temporary, restored below
+                )
+                
+                local modeDesc = if isFast then "Fast LA" else (if isTextured then "Textured Preview" else "Clay & LA")
                 lbl_status.text = "Status: Rendering " + modeDesc + " in VFB (Press ESC / Cancel to abort)..."
                 pb_prog.value = 50
                 windows.processPostedMessages()
@@ -455,6 +550,11 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
                     
                     if renderSuccess then (
                         lbl_status.text = "Status: Finished! " + modePrefix + " RGB & LA saved."
+                        if isFast do (
+                            local st = fn_fastLAStats()
+                            if st != "" do lbl_status.text = "Fast LA: " + st
+                            format "EasyLife Fast LA [%]: %\n" camName st
+                        )
                         pb_prog.value = 100
                     ) else (
                         lbl_status.text = "Status: Render finished, check output folder."
@@ -486,6 +586,14 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
             vr.camera_type = origCamType
             vr.camera_overrideFOV = origOverrideFOV
             vr.camera_fov = origCamFOV
+            vr.gi_primary_type = origGIPrimary
+            vr.lightcache_subdivs = origLCSubdivs
+            vr.lightcache_sampleSize = origLCSampleSize
+            vr.lightcache_numPasses = origLCPasses
+            vr.imageSampler_shadingRate = origShadingRate
+            for i = 1 to portalNodes.count do (
+                if isValidNode portalNodes[i] do portalNodes[i].simplePortal = origSimplePortal[i]
+            )
             renderWidth = origW
             renderHeight = origH
             
@@ -496,14 +604,14 @@ toolTip:"EasyLife: SimReady Render Studio (Textured Preview & Clay + LA)"
                 )
             )
             
-            -- Free RAM
+            -- Free RAM (Fast LA keeps bitmaps cached for the next quick check)
             gc light:true
-            freeSceneBitmaps()
+            if not isFast do freeSceneBitmaps()
             
             btn_render.enabled = true
             
             -- Open folder if requested
-            if chk_openComplete.checked and renderSuccess and not wasCancelled do (
+            if chk_openComplete.checked and renderSuccess and not wasCancelled and not isFast do (
                 try (shellLaunch "explorer.exe" ("/select,\"" + rgbFile + "\"")) catch ()
             )
             
